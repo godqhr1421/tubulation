@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>관리자 모드 - 마스터 데이터 편집</title>
+    
+    <script src="lib/papaparse.min.js"></script>
+       <link href="lib/tabulator.min.css" rel="stylesheet">
+    <script src="lib/tabulator.min.js"></script>
+
+    <style>
+        body { font-family: 'Malgun Gothic', sans-serif; padding: 20px; background-color: #f8f9fa; }
+        .menu-bar { 
+            background: white; padding: 20px; border-radius: 8px; 
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1); margin-bottom: 20px;
+            display: flex; align-items: center; gap: 15px; flex-wrap: wrap;
+        }
+        .btn { padding: 10px 20px; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; }
+        .btn-load { background-color: #6c757d; color: white; }
+        .btn-save { background-color: #28a745; color: white; }
+        .btn-add { background-color: #17a2b8; color: white; }
+        #admin-table { border-radius: 8px; overflow: hidden; }
+        .file-input-wrapper { position: relative; overflow: hidden; display: inline-block; }
+        .file-input-wrapper input[type=file] { position: absolute; left: 0; top: 0; opacity: 0; cursor: pointer; }
+    </style>
+</head>
+<body>
+
+    <div class="menu-bar">
+        <div class="file-input-wrapper">
+            <button class="btn btn-load">📁 CSV 불러오기</button>
+            <input type="file" id="csv-file" accept=".csv">
+        </div>
+        <div class="file-input-wrapper">
+            <button class="btn btn-load-json">📄 JSON 불러오기</button>
+            <input type="file" id="json-file" accept=".json">
+        </div>
+        <button class="btn btn-add" onclick="addRow()">➕ 행 추가</button>
+        <button class="btn btn-save" onclick="exportCSV()">💾 수정본 CSV 저장</button>
+        <span id="file-name" style="color: #666; font-size: 0.9em;">불러온 파일 없음</span>
+    </div>
+
+    <div id="admin-table"></div>
+
+    <script>
+        let table;
+
+        // 1. Tabulator 초기 설정
+        table = new Tabulator("#admin-table", {
+            layout: "fitColumns",
+            placeholder: "파일을 불러오거나 행을 추가해주세요.",
+            history: true,           // 실행 취소 가능
+            pagination: "local",     // 로컬 페이징
+            paginationSize: 15,
+            groupBy: "카테고리",     // 카테고리별 그룹화
+            groupHeader: function(value, count){
+                return value + " <span style='color:#3498db; margin-left:10px;'>(" + count + "개 항목)</span>";
+            },
+            columns: [
+                {title: "카테고리", field: "카테고리", editor: "input", headerFilter: "input"},
+                {title: "품목명", field: "품목명", editor: "input", headerFilter: "input"},
+                {title: "수량", field: "수량", editor: "number", width: 100},
+                {title: "비고", field: "비고", editor: "textarea"},
+                {
+                    title: "삭제", 
+                    formatter: "buttonCross", 
+                    width: 80, 
+                    hozAlign: "center", 
+                    cellClick: function(e, cell){ cell.getRow().delete(); },
+                    download: false // 다운로드 파일에서 이 컬럼이 제외
+                }
+            ],
+        });
+
+        // 2. PapaParse를 이용한 CSV 로드
+        document.getElementById('csv-file').addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            document.getElementById('file-name').innerText = "현재 파일: " + file.name;
+
+            Papa.parse(file, {
+                header: true,
+                skipEmptyLines: true,
+                dynamicTyping: true, // 숫자 등을 자동으로 변환
+             // encoding: "EUC-KR",  // 한글 깨짐 방지 (엑셀 저장 방식에 따라 기본값 UTF-8로 변경 및 생략 가능)
+                complete: function(results) {
+            console.log("파싱 결과:", results); // 데이터가 나오는지 확인
+
+            if (results.data && results.data.length > 0) {
+                // 데이터 주입 전 기존 데이터 삭제
+                table.clearData();
+                table.setData(results.data); 
+                alert("데이터를 성공적으로 불러왔습니다.");
+            } else {
+                alert("파일을 읽었으나 데이터가 비어있습니다. CSV 형식을 확인하세요.");
+            }
+        },
+        error: function(err) {
+            console.error("PapaParse 오류:", err);
+            alert("파일 읽기 중 오류가 발생했습니다.");
+        }
+    });
+});
+
+        // --- 3. JSON 로드 (새로 추가) ---
+        document.getElementById('json-file').addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = function(event) {
+                try {
+                    const jsonData = JSON.parse(event.target.result);
+                    table.setData(jsonData);
+                    document.getElementById('file-name').innerText = "현재 파일: " + file.name;
+                    alert("JSON 데이터를 성공적으로 불러왔습니다.");
+                } catch (err) {
+                    console.error("JSON 파싱 오류:", err);
+                    alert("JSON 형식이 올바르지 않습니다.");
+                }
+            };
+            reader.readAsText(file);
+        });
+
+
+        // 4. 행 추가 기능
+        function addRow() {
+            table.addRow({ "카테고리": "미분류", "품목명": "새 항목", "수량": 0, "비고": "" });
+        }
+        
+
+        // 5. 최종 결과물 CSV 내보내기
+        function exportCSV() {
+            // 현재 화면에 보이는 데이터(수정본)를 CSV로 저장
+            // bom: true는 엑셀에서 한글이 깨지지 않게 해주는 핵심 옵션
+            table.download("csv", "master_data_updated.csv", {bom: true});
+        }
+    </script>
+</body>
+</html>
