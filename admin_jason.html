@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>Tailwind 에디션</title>
+    
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="lib/papaparse.min.js"></script>
+    <link href="lib/tabulator.min.css" rel="stylesheet">
+    <script src="lib/tabulator.min.js"></script>
+    
+    <style>
+        /* Tabulator Tailwind 테마 보정 */
+        .tabulator { border: none !important; font-size: 0.9rem; }
+        .tabulator-header { background-color: #f9fafb !important; border-bottom: 2px solid #e5e7eb !important; }
+        .tabulator-row { border-bottom: 1px solid #f3f4f6 !important; }
+    </style>
+</head>
+<body class="bg-gray-50 text-gray-800 antialiased min-h-screen">
+
+    <div class="max-w-6xl mx-auto px-4 py-10">
+        <div class="flex flex-col md:flex-row md:items-center justify-between mb-8 gap-4">
+            <div>
+                <h1 class="text-2xl font-bold text-gray-900">📂 데이터 마스터 관리</h1>
+                <p class="text-sm text-gray-500 mt-1" id="status">파일을 업로드하여 편집을 시작하세요.</p>
+            </div>
+            
+            <div class="flex items-center gap-3">
+                <label class="cursor-pointer bg-white border border-gray-300 px-4 py-2 rounded-lg shadow-sm hover:bg-gray-50 transition text-sm font-medium">
+                    📁 JSON 불러오기
+                    <input type="file" id="json-file" accept=".json" class="hidden">
+                </label>
+                <button onclick="exportJSON()" class="bg-indigo-600 text-white px-4 py-2 rounded-lg shadow-md hover:bg-indigo-700 transition text-sm font-medium">
+                    💾 전체 저장
+                </button>
+            </div>
+        </div>
+
+        <div id="category-list" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+            <div class="col-span-full py-20 text-center border-2 border-dashed border-gray-200 rounded-2xl">
+                <p class="text-gray-400">데이터가 없습니다.</p>
+            </div>
+        </div>
+    </div>
+
+    <div id="modal-overlay" class="fixed inset-0 bg-black bg-opacity-50 z-40 hidden flex items-center justify-center p-4">
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-5xl max-h-[90vh] overflow-hidden flex flex-col">
+            <div class="px-6 py-4 border-bottom border-gray-100 flex items-center justify-between bg-gray-50">
+                <h3 class="text-lg font-bold text-gray-900"><span id="current-category-name" class="text-indigo-600"></span> 편집</h3>
+                <button onclick="closeModal()" class="text-gray-400 hover:text-gray-600">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                </button>
+            </div>
+            
+            <div class="p-6 overflow-y-auto">
+                <div class="flex justify-between items-center mb-4">
+                    <button onclick="addRowInModal()" class="bg-emerald-50 text-emerald-700 border border-emerald-200 px-3 py-1.5 rounded-md text-sm font-bold hover:bg-emerald-100 transition">
+                        + 새 항목 추가
+                    </button>
+                    <span class="text-xs text-gray-400">* 셀을 클릭하여 내용을 수정하세요.</span>
+                </div>
+                <div id="modal-table" class="rounded-lg border border-gray-200"></div>
+            </div>
+
+            <div class="px-6 py-4 bg-gray-50 border-t border-gray-100 flex justify-end">
+                <button onclick="closeModal()" class="bg-gray-200 text-gray-700 px-5 py-2 rounded-lg font-medium hover:bg-gray-300 transition">닫기</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let masterData = [];
+        let modalTable;
+        let currentCategory = "";
+
+        const overlay = document.getElementById('modal-overlay');
+
+        // 1. JSON 로드
+        document.getElementById('json-file').addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = function(event) {
+                try {
+                    masterData = JSON.parse(event.target.result);
+                    renderCategoryCards();
+                    document.getElementById('status').innerText = `${file.name} - ${masterData.length}개 항목 로드됨`;
+                } catch (err) { alert("JSON 형식이 올바르지 않습니다."); }
+            };
+            reader.readAsText(file);
+        });
+
+        // 2. 카테고리 카드 렌더링
+        function renderCategoryCards() {
+            const container = document.getElementById('category-list');
+            container.innerHTML = "";
+
+            const categories = [...new Set(masterData.map(item => item.카테고리 || "미분류"))];
+
+            categories.forEach(cat => {
+                const count = masterData.filter(i => i.카테고리 === cat).length;
+                const card = document.createElement('div');
+                card.className = "group bg-white p-6 rounded-2xl shadow-sm border border-gray-100 cursor-pointer hover:shadow-md hover:border-indigo-200 transition-all";
+                card.onclick = () => openModal(cat);
+                card.innerHTML = `
+                    <div class="flex items-center justify-between">
+                        <div class="bg-indigo-50 p-3 rounded-xl group-hover:bg-indigo-600 transition-colors">
+                            <svg class="w-6 h-6 text-indigo-600 group-hover:text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"></path></svg>
+                        </div>
+                        <span class="text-xs font-bold text-indigo-500 bg-indigo-50 px-2 py-1 rounded-full">${count}</span>
+                    </div>
+                    <h3 class="mt-4 font-bold text-gray-900 text-lg">${cat}</h3>
+                    <p class="text-sm text-gray-400 mt-1">항목 편집하기 &rarr;</p>
+                `;
+                container.appendChild(card);
+            });
+        }
+
+        // 3. 모달 제어
+        function openModal(category) {
+            currentCategory = category;
+            document.getElementById('current-category-name').innerText = category;
+            overlay.classList.remove('hidden');
+
+            modalTable = new Tabulator("#modal-table", {
+                data: masterData.filter(item => item.카테고리 === category),
+                layout: "fitColumns",
+                height: "400px",
+                columns: [
+                    {title: "품목명", field: "품목명", editor: "input", headerSort: false},
+                    {title: "수량", field: "수량", editor: "number", width: 90, hozAlign: "right"},
+                    {title: "비고", field: "비고", editor: "textarea", headerSort: false},
+                    {
+                        title: "", field: "delete", width: 50, hozAlign: "center", headerSort: false,
+                        formatter: function() { return "<span class='text-red-400 cursor-pointer hover:text-red-600 font-bold'>&times;</span>"; },
+                        cellClick: function(e, cell) {
+                            if(confirm("이 항목을 삭제할까요?")) {
+                                const rowData = cell.getRow().getData();
+                                masterData = masterData.filter(item => item !== rowData);
+                                cell.getRow().delete();
+                                renderCategoryCards();
+                            }
+                        }
+                    }
+                ],
+                cellEdited: function() { renderCategoryCards(); }
+            });
+        }
+
+        function closeModal() {
+            overlay.classList.add('hidden');
+        }
+
+        function addRowInModal() {
+            const newRow = { "카테고리": currentCategory, "품목명": "새 항목", "수량": 0, "비고": "" };
+            masterData.push(newRow);
+            modalTable.addRow(newRow);
+            renderCategoryCards();
+        }
+
+        // 4. 저장
+        function exportJSON() {
+            if (masterData.length === 0) return alert("저장할 데이터가 없습니다.");
+            const blob = new Blob([JSON.stringify(masterData, null, 2)], {type: "application/json"});
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = "master_data.json";
+            a.click();
+        }
+    </script>
+</body>
+</html>
